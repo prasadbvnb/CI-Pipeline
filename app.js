@@ -104,7 +104,7 @@ bot.dialog('Shopping.FindItemDialog', [
     			};
 		} else {
             (session) => {
-        		session.send('We are sorry, item is not available with us today', data.item);
+        		session.send('We are sorry, item not available with us today', data.item);
         		session.endDialog();
     			};
         	}
