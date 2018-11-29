@@ -1,51 +1,44 @@
 /*-----------------------------------------------------------------------------
-A simple Azure Bot using Language Understanding (LUIS) 
+A simple Language Understanding (LUIS) bot for the Microsoft Bot Framework.
 -----------------------------------------------------------------------------*/
 
-var request = require('request')
 var restify = require('restify');
 var builder = require('botbuilder');
 var botbuilder_azure = require("botbuilder-azure");
 
-// Setup Restify Server
+
 var server = restify.createServer();
 server.listen(process.env.port || process.env.PORT || 3978, function () {
-   console.log('%s listening to %s', server.name, server.url); 
+   console.log('%s listening to %s', server.name, server.url);
 });
-  
-// Create chat connector for communicating with the Bot Framework Service
+
+
 var connector = new builder.ChatConnector({
     appId: process.env.MicrosoftAppId,
     appPassword: process.env.MicrosoftAppPassword,
-    openIdMetadata: process.env.BotOpenIdMetadata 
+    openIdMetadata: process.env.BotOpenIdMetadata
 });
 
-// Listen for messages from users 
+
 server.post('/api/messages', connector.listen());
 
-/*----------------------------------------------------------------------------------------
-* Bot Storage: This is a great spot to register the private state storage for your bot. 
-* We provide adapters for Azure Table, CosmosDb, SQL Azure, or you can implement your own!
-* For samples and documentation, see: https://github.com/Microsoft/BotBuilder-Azure
-* ---------------------------------------------------------------------------------------- */
+
 
 var tableName = 'botdata';
 var azureTableClient = new botbuilder_azure.AzureTableClient(tableName, process.env['AzureWebJobsStorage']);
 var tableStorage = new botbuilder_azure.AzureBotStorage({ gzipData: false }, azureTableClient);
 
-// Create your bot with a function to receive messages from the user
-// This default message handler is invoked if the user's utterance doesn't
-// match any intents handled by other dialogs.
-var bot = new builder.UniversalBot(connector,function (session) {
-    //initialize conversational data for every new conversation
-   session.send('I\'m sorry, I did not understand that');
 
-     // If the object for storing notes in session.userData doesn't exist yet, initialize it
-   if (!session.userData.shoppingCarts) {
-       session.userData.shoppingCarts = {};
-       console.log("initializing userData.notes in default message handler");
+var bot = new builder.UniversalBot(connector,function (session) {
+
+   session.send('Welcome To Shopping Cart');
+
+
+   if (!session.userData.shoppingCartItems) {
+       session.userData.shoppingCartItems = {};
+       console.log("initializing userData.shoppingCarts in default message handler");
    }
-  
+
  }
 
 );
@@ -64,75 +57,29 @@ var recognizer = new builder.LuisRecognizer(LuisModelUrl);
 bot.recognizer(recognizer);
 
 // Add a dialog for each intent that the LUIS app recognizes.
-// See https://docs.microsoft.com/en-us/bot-framework/nodejs/bot-builder-nodejs-recognize-intent-luis 
+// See https://docs.microsoft.com/en-us/bot-framework/nodejs/bot-builder-nodejs-recognize-intent-luis
 bot.dialog('GreetingDialog',
     (session) => {
-        session.send('\%s\, Do you want to shopping now ? How can I help ?', session.message.text);
+        session.send('You reached the Greeting intent. You said \'%s\'.', session.message.text);
         session.endDialog();
     }
 ).triggerAction({
     matches: 'Greeting'
 });
 
-
-
-
-// Dialog or Find Items.
-bot.dialog('Shopping.FindItemDialog', [
-  (session) => {builder.Prompts.text(session, "Sure ! What do you like to buy ?")},
-  //(session) => {session.send('Sure ! What do you like to buy ?', session.message.text);},
-  (session, results) => {
-    session.dialogData.firstInput = results.response
-    // make the api call here with the inputs received from the user
-    // below example is for a post call
-      request.post('http://104.211.102.154:3333/search', {
-        'auth': {
-            'user': 'abc',
-            'pass': 'xyz',
-            'sendImmediately': false
-          }, 
-          'json': {
-            item: session.dialogData.firstInput
-          }
-        }, (error, response, body) => {
-                var data = JSON.parse(body);
-		if (data.status == 'found'){
-		    (session) => {
-        		session.send('\%s\ is available today', data.item);
-                session.send('Price is : Rs. \%s\ ', data.price);
-        		session.endDialog();
-    			};
-		} else {
-            (session) => {
-        		session.send('We are sorry, item not available with us today', data.item);
-        		session.endDialog();
-    			};
-        	}
-                // do stuff with data
-                // use session.send / session.endDialog
-              })        
-  }
-]
-).triggerAction({
-    matches: 'Shopping.FindItem'
-});
-
-
-
-
-
-//  dialog for Shopping Cart Adding
-bot.dialog('AddToShoppingCartDialog', [
+//  dialog for Shopping Cart Add
+bot.dialog('AddToShoppingCart', [
     function (session, args, next) {
-        // Resolve and store any Note.shoppingItem entity passed from LUIS.
+        //  store any shoppingItem entity passed from LUIS.
         var intent = args.intent;
         var shoppingItem = builder.EntityRecognizer.findEntity(intent.entities, 'Shopping.Item');
-        var shoppingQuantity = builder.EntityRecognizer.findEntity(intent.entities, 'Shopping.Quantity');
+        var shoppingQuantity=builder.EntityRecognizer.findEntity(intent.entities, 'Shopping.Quantity');
+
         var shoppingCart = session.dialogData.shoppingCart = {
           shoppingItem: shoppingItem ? shoppingItem.entity : null,
         };
-        
-        // Prompt for shoppingItem
+
+        // ask for shoppingItem
         if (!shoppingCart.shoppingItem) {
             builder.Prompts.text(session, 'Which item you want to shop?');
         } else {
@@ -145,7 +92,7 @@ bot.dialog('AddToShoppingCartDialog', [
             shoppingCart.shoppingItem = results.response;
         }
 
-        // Prompt for the text of the note
+        // Prompt for quantity
         if (!shoppingCart.shoppingQuantity) {
             builder.Prompts.text(session, 'What quantity would you like  to buy?');
         } else {
@@ -157,23 +104,99 @@ bot.dialog('AddToShoppingCartDialog', [
         if (results.response) {
             shoppingCart.shoppingQuantity = results.response;
         }
-        
-        // If the object for storing notes in session.userData doesn't exist yet, initialize it
-        if (!session.userData.shoppingCarts) {
-            session.userData.shoppingCarts = {};
+
+        if (!session.userData.shoppingCartItems) {
+            session.userData.shoppingCartItems = {};
             console.log("initializing session.userData.shoppingCart in AddToCart dialog");
         }
-        // Save notes in the notes object
-        session.userData.shoppingCarts[shoppingCart.shoppingItem] = shoppingCart;
+
+        session.userData.shoppingCartItems[shoppingCart.shoppingItem] = shoppingCart;
 
         // Send confirmation to user
         session.endDialog('Creating shoppingcart with item "%s" with quantity of "%s"',
             shoppingCart.shoppingItem, shoppingCart.shoppingQuantity);
     }
-]).triggerAction({ 
+]).triggerAction({
     matches: 'Shopping.AddToCart',
-    confirmPrompt: "This will cancel the creation of the note you started. Are you sure?" 
+    confirmPrompt: "This will cancel the creation of the cart. Are you sure?"
 }).cancelAction('cancelAddToCart', "Add To Cart canceled.", {
-    matches: /^(cancel|nevermind)/i,
+    matches: /^(cancel)/i,
     confirmPrompt: "Are you sure?"
 });
+// Delete Items form shopping cart dialog
+bot.dialog('RemoveItemsFromCart', [
+    function (session, args, next) {
+        if (cartItemCount(session.userData.shoppingCartItems) > 0) {
+            // Resolve and store shopping entity passed from LUIS.
+            var shoppingItem;
+            var intent = args.intent;
+            var entity = builder.EntityRecognizer.findEntity(intent.entities, 'Shopping.Item');
+            if (entity) {
+
+                shoppingItem = builder.EntityRecognizer.findBestMatch(session.userData.shoppingCartItems, entity.entity);
+            }
+
+               if (!shoppingItem) {
+                builder.Prompts.choice(session, 'Which item would you like to delete?', session.userData.shoppingCartItems);
+            } else {
+                next({ response: shoppingItem });
+            }
+        } else {
+            session.endDialog("No items to delete.");
+        }
+    },
+    function (session, results) {
+        delete session.userData.shoppingCartItems[results.response.entity];
+        session.endDialog("Deleted the '%s' item.", results.response.entity);
+    }
+]).triggerAction({
+    matches: 'Shopping.RemoveFromCart'
+}).cancelAction('cancelRemoveCar', "Ok - canceled item removal.", {
+    matches: /^(cancel)/i
+});
+
+
+// Find item Dialog
+bot.dialog('findItem', [
+    function (session, args, next) {
+        if (cartItemCount(session.userData.shoppingCartItems) > 0) {
+
+
+            var shoppingItem;
+            var intent = args.intent;
+            var entity = builder.EntityRecognizer.findEntity(intent.entities, 'Shopping.Item');
+            if (entity) {
+                // Verify it's in our set of items.
+                shoppingItem = builder.EntityRecognizer.findBestMatch(session.userData.shoppingCartItems, entity.entity);
+            }
+
+
+            if (!shoppingItem) {
+                builder.Prompts.choice(session, 'Which item would you like to find?', session.userData.shoppingCartItems);
+            } else {
+                next({ response: shoppingItem });
+            }
+        } else {
+            session.endDialog("No items to find.");
+        }
+    },
+    function (session, results) {
+        session.endDialog("Here's the '%s' item: '%s'.", results.response.entity, session.userData.shoppingCartItems[results.response.entity].shoppingItem);
+    }
+]).triggerAction({
+    matches: 'Shopping.FindItem'
+}).cancelAction('cancelFindItem', "Ok.", {
+    matches: /^(cancel)/i
+});
+
+
+// Utility function to count the number of items stored in user data session
+
+function cartItemCount(items) {
+
+    var i = 0;
+    for (var name in items) {
+        i++;
+    }
+    return i;
+}
